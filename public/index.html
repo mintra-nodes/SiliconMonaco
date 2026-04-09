@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Lua Editor</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Tabs ── */
+    #tabs-bar {
+      background: #2d2d2d;
+      display: flex;
+      align-items: stretch;
+      overflow-x: auto;
+      flex-shrink: 0;
+      scrollbar-width: none;
+      border-bottom: 1px solid #252526;
+    }
+
+    #tabs-bar::-webkit-scrollbar { display: none; }
+
+    .tab {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 12px;
+      height: 35px;
+      font-size: 13px;
+      color: #969696;
+      cursor: pointer;
+      border-right: 1px solid #252526;
+      white-space: nowrap;
+      user-select: none;
+      background: #2d2d2d;
+      min-width: 120px;
+      max-width: 200px;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .tab:hover {
+      background: #3d3d3d;
+      color: #cccccc;
+    }
+
+    .tab.active {
+      background: #1e1e1e;
+      color: #ffffff;
+      border-top: 1px solid #007acc;
+    }
+
+    .tab-icon {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+
+    .tab-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+
+    .tab-name-input {
+      background: #3c3c3c;
+      border: 1px solid #007acc;
+      color: #ffffff;
+      font-size: 13px;
+      outline: none;
+      width: 100%;
+      font-family: inherit;
+      padding: 0 2px;
+      border-radius: 2px;
+    }
+
+    .tab-modified {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ffffff;
+      flex-shrink: 0;
+      display: none;
+    }
+
+    .tab.modified .tab-modified { display: block; }
+    .tab.modified .tab-close { display: none; }
+    .tab.modified:hover .tab-modified { display: none; }
+    .tab.modified:hover .tab-close { display: flex; }
+    .tab:not(.modified) .tab-close { display: flex; }
+
+    .tab-close {
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      color: #969696;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+
+    .tab-close:hover {
+      background: #ffffff20;
+      color: #ffffff;
+    }
+
+    #new-tab-btn {
+      padding: 0 12px;
+      font-size: 20px;
+      color: #969696;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      background: transparent;
+      border: none;
+      height: 35px;
+    }
+
+    #new-tab-btn:hover {
+      background: #3d3d3d;
+      color: #cccccc;
+    }
+
+    /* ── Editor ── */
+    #editor-container {
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Context Menu ── */
+    #ctx-menu {
+      position: fixed;
+      background: #252526;
+      border: 1px solid #454545;
+      border-radius: 4px;
+      padding: 4px 0;
+      z-index: 9999;
+      display: none;
+      box-shadow: 0 4px 16px #00000060;
+      min-width: 160px;
+    }
+
+    .ctx-item {
+      padding: 6px 16px;
+      font-size: 13px;
+      color: #cccccc;
+      cursor: pointer;
+    }
+
+    .ctx-item:hover {
+      background: #094771;
+      color: #ffffff;
+    }
+
+    .ctx-sep {
+      height: 1px;
+      background: #454545;
+      margin: 3px 0;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Tabs -->
+<div id="tabs-bar">
+  <div id="tabs-list" style="display:flex;align-items:stretch;flex:1;"></div>
+  <button id="new-tab-btn" onclick="addTab()" title="New Tab (Ctrl+T)">+</button>
+</div>
+
+<!-- Editor -->
+<div id="editor-container"></div>
+
+<!-- Context Menu -->
+<div id="ctx-menu">
+  <div class="ctx-item" onclick="ctxRename()">Rename Tab</div>
+  <div class="ctx-item" onclick="ctxDuplicate()">Duplicate Tab</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" onclick="ctxClose()">Close Tab</div>
+  <div class="ctx-item" onclick="ctxCloseOthers()">Close Other Tabs</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+<script>
+let editor = null;
+let monaco = null;
+let tabs = [];
+let activeTabId = null;
+let tabCounter = 0;
+let ctxTabId = null;
+
+// ── Lua Completions ──
+const LUA_KEYWORDS = [
+  'and','break','do','else','elseif','end','false','for',
+  'function','goto','if','in','local','nil','not','or',
+  'repeat','return','then','true','until','while'
+];
+
+const LUA_GLOBALS = [
+  'print','tostring','tonumber','type','pairs','ipairs','next',
+  'select','unpack','rawget','rawset','rawequal','rawlen',
+  'setmetatable','getmetatable','require','load','loadfile',
+  'dofile','pcall','xpcall','error','assert','collectgarbage',
+  '_VERSION','_G','warn'
+];
+
+const LUA_LIBS = [
+  'string.format','string.len','string.sub','string.upper','string.lower',
+  'string.rep','string.reverse','string.byte','string.char','string.find',
+  'string.match','string.gmatch','string.gsub',
+  'table.insert','table.remove','table.sort','table.concat',
+  'table.unpack','table.move',
+  'math.abs','math.ceil','math.floor','math.sqrt','math.max','math.min',
+  'math.random','math.randomseed','math.pi','math.huge','math.sin',
+  'math.cos','math.tan','math.exp','math.log','math.modf',
+  'io.read','io.write','io.open','io.close','io.lines',
+  'os.time','os.date','os.clock','os.exit','os.getenv',
+  'coroutine.create','coroutine.resume','coroutine.yield',
+  'coroutine.status','coroutine.wrap','coroutine.running',
+];
+
+const LUA_SNIPPETS = [
+  {
+    label: 'function',
+    insertText: 'function ${1:name}(${2:args})\n\t${3}\nend',
+    detail: 'function definition'
+  },
+  {
+    label: 'local function',
+    insertText: 'local function ${1:name}(${2:args})\n\t${3}\nend',
+    detail: 'local function definition'
+  },
+  {
+    label: 'if',
+    insertText: 'if ${1:condition} then\n\t${2}\nend',
+    detail: 'if statement'
+  },
+  {
+    label: 'if-else',
+    insertText: 'if ${1:condition} then\n\t${2}\nelse\n\t${3}\nend',
+    detail: 'if-else statement'
+  },
+  {
+    label: 'elseif',
+    insertText: 'elseif ${1:condition} then\n\t${2}',
+    detail: 'elseif clause'
+  },
+  {
+    label: 'for',
+    insertText: 'for ${1:i} = ${2:1}, ${3:10} do\n\t${4}\nend',
+    detail: 'numeric for loop'
+  },
+  {
+    label: 'for-in',
+    insertText: 'for ${1:k}, ${2:v} in pairs(${3:t}) do\n\t${4}\nend',
+    detail: 'generic for-in loop'
+  },
+  {
+    label: 'while',
+    insertText: 'while ${1:condition} do\n\t${2}\nend',
+    detail: 'while loop'
+  },
+  {
+    label: 'repeat',
+    insertText: 'repeat\n\t${1}\nuntil ${2:condition}',
+    detail: 'repeat-until loop'
+  },
+  {
+    label: 'local',
+    insertText: 'local ${1:name} = ${2:value}',
+    detail: 'local variable'
+  },
+  {
+    label: 'pcall',
+    insertText: 'local ok, err = pcall(function()\n\t${1}\nend)\nif not ok then\n\tprint(err)\nend',
+    detail: 'protected call'
+  },
+  {
+    label: 'require',
+    insertText: 'local ${1:mod} = require("${2:module}")',
+    detail: 'require module'
+  },
+  {
+    label: 'class',
+    insertText:
+`local \${1:ClassName} = {}
+\${1:ClassName}.__index = \${1:ClassName}
+
+function \${1:ClassName}.new(\${2})
+\tlocal self = setmetatable({}, \${1:ClassName})
+\t\${3}
+\treturn self
+end
+
+function \${1:ClassName}:\${4:method}()
+\t\${5}
+end
+
+return \${1:ClassName}`,
+    detail: 'class template'
+  },
+];
+
+// ── Monaco Init ──
+require.config({
+  paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' }
+});
+
+require(['vs/editor/editor.main'], function (m) {
+  monaco = m;
+
+  // Autocomplete
+  monaco.languages.registerCompletionItemProvider('lua', {
+    triggerCharacters: ['.', ':'],
+    provideCompletionItems(model, position) {
+      const word = model.getWordUntilPosition(position);
+      const range = {
+        startLineNumber: position.lineNumber,
+        endLineNumber: position.lineNumber,
+        startColumn: word.startColumn,
+        endColumn: word.endColumn
+      };
+
+      const suggestions = [];
+
+      LUA_KEYWORDS.forEach(kw => suggestions.push({
+        label: kw,
+        kind: monaco.languages.CompletionItemKind.Keyword,
+        insertText: kw,
+        range
+      }));
+
+      LUA_GLOBALS.forEach(g => suggestions.push({
+        label: g,
+        kind: monaco.languages.CompletionItemKind.Function,
+        insertText: g + '($0)',
+        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+        range
+      }));
+
+      LUA_LIBS.forEach(lib => suggestions.push({
+        label: lib,
+        kind: monaco.languages.CompletionItemKind.Method,
+        insertText: lib + '($0)',
+        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+        range,
+        detail: 'Lua stdlib'
+      }));
+
+      LUA_SNIPPETS.forEach(s => suggestions.push({
+        label: s.label,
+        kind: monaco.languages.CompletionItemKind.Snippet,
+        insertText: s.insertText,
+        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+        range,
+        detail: s.detail,
+        sortText: '0' + s.label
+      }));
+
+      return { suggestions };
+    }
+  });
+
+  // Hover docs
+  monaco.languages.registerHoverProvider('lua', {
+    provideHover(model, position) {
+      const word = model.getWordAtPosition(position);
+      if (!word) return null;
+      const docs = {
+        print:          '```lua\nprint(...)\n```\nOutputs values to stdout, separated by tabs.',
+        pairs:          '```lua\npairs(t)\n```\nReturns an iterator for all key-value pairs in table `t`.',
+        ipairs:         '```lua\nipairs(t)\n```\nReturns an iterator for integer-indexed values in `t`.',
+        tostring:       '```lua\ntostring(v)\n```\nConverts value `v` to a string.',
+        tonumber:       '```lua\ntonumber(v [, base])\n```\nConverts `v` to a number.',
+        type:           '```lua\ntype(v)\n```\nReturns the type of `v` as a string.',
+        pcall:          '```lua\npcall(f, ...)\n```\nCalls `f` in protected mode. Returns `true, results` or `false, error`.',
+        xpcall:         '```lua\nxpcall(f, handler)\n```\nLike pcall but with a message handler.',
+        error:          '```lua\nerror(msg [, level])\n```\nRaises an error with message `msg`.',
+        assert:         '```lua\nassert(v [, msg])\n```\nErrors if `v` is false or nil.',
+        require:        '```lua\nrequire(modname)\n```\nLoads the given module.',
+        setmetatable:   '```lua\nsetmetatable(t, mt)\n```\nSets the metatable for table `t`.',
+        getmetatable:   '```lua\ngetmetatable(t)\n```\nReturns the metatable of `t`.',
+        rawget:         '```lua\nrawget(t, k)\n```\nGets `t[k]` without invoking metamethods.',
+        rawset:         '```lua\nrawset(t, k, v)\n```\nSets `t[k] = v` without invoking metamethods.',
+        select:         '```lua\nselect(index, ...)\n```\nReturns elements from `...` starting at `index`.',
+        unpack:         '```lua\nunpack(list [, i [, j]])\n```\nReturns elements from the list.',
+        collectgarbage: '```lua\ncollectgarbage([opt])\n```\nControls the garbage collector.',
+        load:           '```lua\nload(chunk)\n```\nLoads a chunk of Lua code.',
+        dofile:         '```lua\ndofile([filename])\n```\nLoads and executes a Lua file.',
+        next:           '```lua\nnext(t [, key])\n```\nReturns the next key-value pair in table `t`.',
+      };
+      if (docs[word.word]) {
+        return { contents: [{ value: docs[word.word] }] };
+      }
+      return null;
+    }
+  });
+
+  // Create editor
+  editor = monaco.editor.create(document.getElementById('editor-container'), {
+    language: 'lua',
+    theme: 'vs-dark',
+    fontSize: 14,
+    fontFamily: "'Cascadia Code', 'Consolas', 'Courier New', monospace",
+    fontLigatures: true,
+    minimap: { enabled: true },
+    scrollBeyondLastLine: false,
+    automaticLayout: true,
+    tabSize: 2,
+    insertSpaces: true,
+    wordWrap: 'off',
+    lineNumbers: 'on',
+    renderLineHighlight: 'all',
+    cursorBlinking: 'blink',
+    cursorSmoothCaretAnimation: 'on',
+    smoothScrolling: true,
+    bracketPairColorization: { enabled: true },
+    guides: { bracketPairs: true, indentation: true },
+    suggestOnTriggerCharacters: true,
+    quickSuggestions: { other: true, comments: false, strings: false },
+    parameterHints: { enabled: true },
+    formatOnPaste: true,
+    autoClosingBrackets: 'always',
+    autoClosingQuotes: 'always',
+    folding: true,
+    showFoldingControls: 'mouseover',
+    renderWhitespace: 'none',
+    padding: { top: 4 },
+    scrollbar: {
+      verticalScrollbarSize: 10,
+      horizontalScrollbarSize: 10,
+    },
+    suggest: {
+      showKeywords: true,
+      showSnippets: true,
+      showFunctions: true,
+      showMethods: true,
+    }
+  });
+
+  // Track cursor position (optional, remove if not needed)
+  editor.onDidChangeCursorPosition(e => {
+    // You can post this to the webview host if needed
+  });
+
+  // Track modifications
+  editor.onDidChangeModelContent(() => {
+    if (activeTabId === null) return;
+    const tab = getTab(activeTabId);
+    if (tab) {
+      tab.modified = true;
+      tab.content = editor.getValue();
+      renderTabs();
+    }
+  });
+
+  // Initial tab
+  addTab('Script 1', '-- Welcome to Silicon Executor V2');
+});
+
+// ── Tab Helpers ──
+function getTab(id) { return tabs.find(t => t.id === id); }
+
+function addTab(name, content) {
+  tabCounter++;
+  const id = tabCounter;
+  const tab = {
+    id,
+    name: name || `Script ${tabCounter}`,
+    content: content !== undefined ? content : '',
+    model: null,
+    viewState: null,
+    modified: false,
+    renaming: false,
+  };
+
+  if (monaco) {
+    tab.model = monaco.editor.createModel(tab.content, 'lua');
+  }
+
+  tabs.push(tab);
+  switchTab(id);
+}
+
+function switchTab(id) {
+  if (!editor || !monaco) return;
+
+  if (activeTabId !== null) {
+    const cur = getTab(activeTabId);
+    if (cur) {
+      cur.content = editor.getValue();
+      cur.viewState = editor.saveViewState();
+    }
+  }
+
+  activeTabId = id;
+  const tab = getTab(id);
+  if (!tab) return;
+
+  if (!tab.model) {
+    tab.model = monaco.editor.createModel(tab.content, 'lua');
+  }
+
+  editor.setModel(tab.model);
+
+  if (tab.viewState) {
+    editor.restoreViewState(tab.viewState);
+  }
+
+  editor.focus();
+  renderTabs();
+}
+
+function closeTab(id, e) {
+  if (e) e.stopPropagation();
+  const idx = tabs.findIndex(t => t.id === id);
+  if (idx === -1) return;
+
+  const tab = tabs[idx];
+  if (tab.model) tab.model.dispose();
+  tabs.splice(idx, 1);
+
+  if (tabs.length === 0) {
+    addTab(`Script ${tabCounter + 1}`, '');
+    return;
+  }
+
+  if (activeTabId === id) {
+    const newIdx = Math.min(idx, tabs.length - 1);
+    switchTab(tabs[newIdx].id);
+  } else {
+    renderTabs();
+  }
+}
+
+function renameTab(id) {
+  const tab = getTab(id);
+  if (!tab) return;
+  tab.renaming = true;
+  renderTabs();
+  setTimeout(() => {
+    const input = document.querySelector(`.tab[data-id="${id}"] .tab-name-input`);
+    if (input) { input.focus(); input.select(); }
+  }, 30);
+}
+
+function finishRename(id, value) {
+  const tab = getTab(id);
+  if (!tab) return;
+  tab.name = value.trim() || tab.name;
+  tab.renaming = false;
+  renderTabs();
+}
+
+function luaIcon() {
+  return `<svg class="tab-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect width="16" height="16" rx="2" fill="#00007f"/>
+    <circle cx="8" cy="8" r="4" fill="#ffffff" opacity="0.9"/>
+    <circle cx="11" cy="5" r="1.5" fill="#ffffff" opacity="0.9"/>
+  </svg>`;
+}
+
+function renderTabs() {
+  const list = document.getElementById('tabs-list');
+  list.innerHTML = '';
+
+  tabs.forEach(tab => {
+    const el = document.createElement('div');
+    el.className = 'tab' +
+      (tab.id === activeTabId ? ' active' : '') +
+      (tab.modified ? ' modified' : '');
+    el.dataset.id = tab.id;
+    el.title = tab.name;
+
+    // Icon
+    const iconEl = document.createElement('span');
+    iconEl.innerHTML = luaIcon();
+
+    // Name
+    const nameEl = document.createElement('div');
+    nameEl.className = 'tab-name';
+
+    if (tab.renaming) {
+      const input = document.createElement('input');
+      input.className = 'tab-name-input';
+      input.value = tab.name;
+      input.onclick = e => e.stopPropagation();
+      input.onblur = () => finishRename(tab.id, input.value);
+      input.onkeydown = e => {
+        if (e.key === 'Enter') input.blur();
+        if (e.key === 'Escape') { tab.renaming = false; renderTabs(); }
+        e.stopPropagation();
+      };
+      nameEl.appendChild(input);
+    } else {
+      nameEl.textContent = tab.name;
+    }
+
+    // Modified dot
+    const dot = document.createElement('div');
+    dot.className = 'tab-modified';
+    dot.title = 'Unsaved changes';
+
+    // Close
+    const closeBtn = document.createElement('div');
+    closeBtn.className = 'tab-close';
+    closeBtn.innerHTML = '×';
+    closeBtn.title = 'Close Tab';
+    closeBtn.onclick = e => closeTab(tab.id, e);
+
+    el.appendChild(iconEl);
+    el.appendChild(nameEl);
+    el.appendChild(dot);
+    el.appendChild(closeBtn);
+
+    // Left click — switch
+    el.onclick = () => { if (!tab.renaming) switchTab(tab.id); };
+    // Double click — rename
+    el.ondblclick = e => { e.stopPropagation(); renameTab(tab.id); };
+    // Right click — context menu
+    el.oncontextmenu = e => showCtxMenu(e, tab.id);
+
+    list.appendChild(el);
+  });
+}
+
+// ── Context Menu ──
+function showCtxMenu(e, tabId) {
+  e.preventDefault();
+  ctxTabId = tabId;
+  const menu = document.getElementById('ctx-menu');
+  menu.style.display = 'block';
+  menu.style.left = Math.min(e.clientX, window.innerWidth - 170) + 'px';
+  menu.style.top = Math.min(e.clientY, window.innerHeight - 140) + 'px';
+}
+
+function hideCtxMenu() {
+  document.getElementById('ctx-menu').style.display = 'none';
+}
+
+function ctxRename() {
+  hideCtxMenu();
+  if (ctxTabId !== null) renameTab(ctxTabId);
+}
+
+function ctxDuplicate() {
+  hideCtxMenu();
+  const tab = getTab(ctxTabId);
+  if (!tab) return;
+  // Save latest content if duplicating the active tab
+  const content = ctxTabId === activeTabId ? editor.getValue() : tab.content;
+  addTab(tab.name + ' (copy)', content);
+}
+
+function ctxClose() {
+  hideCtxMenu();
+  if (ctxTabId !== null) closeTab(ctxTabId);
+}
+
+function ctxCloseOthers() {
+  hideCtxMenu();
+  const keep = ctxTabId;
+  // Switch to the kept tab first
+  if (activeTabId !== keep) switchTab(keep);
+  // Close all others
+  tabs.filter(t => t.id !== keep).forEach(t => {
+    if (t.model) t.model.dispose();
+  });
+  tabs = tabs.filter(t => t.id === keep);
+  renderTabs();
+}
+
+document.addEventListener('click', hideCtxMenu);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') hideCtxMenu();
+});
+
+// ── Keyboard Shortcuts ──
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey) {
+    if (e.key === 'w') { e.preventDefault(); closeTab(activeTabId); }
+    if (e.key === 't') { e.preventDefault(); addTab(`Script ${tabCounter + 1}`, ''); }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      if (tabs.length < 2) return;
+      const idx = tabs.findIndex(t => t.id === activeTabId);
+      const next = tabs[(idx + (e.shiftKey ? -1 : 1) + tabs.length) % tabs.length];
+      switchTab(next.id);
+    }
+  }
+});
+
+// ─────────────────────────────────────────────
+//  PUBLIC API — use these from VS Code webview
+// ─────────────────────────────────────────────
+
+/**
+ * Get the content of the currently active tab.
+ * @returns {string}
+ */
+function getEditorContent() {
+  if (!editor) return '';
+  return editor.getValue();
+}
+
+/**
+ * Get the content of a specific tab by its id.
+ * @param {number} id
+ * @returns {string}
+ */
+function getTabContent(id) {
+  const tab = getTab(id);
+  if (!tab) return '';
+  // If it's the active tab, grab live value from editor
+  if (id === activeTabId && editor) return editor.getValue();
+  return tab.content;
+}
+
+/**
+ * Get all tabs with their content.
+ * @returns {{ id: number, name: string, content: string }[]}
+ */
+function getAllTabsContent() {
+  return tabs.map(tab => ({
+    id: tab.id,
+    name: tab.name,
+    content: getTabContent(tab.id)
+  }));
+}
+
+/**
+ * Set the content of the active tab programmatically.
+ * @param {string} content
+ */
+function setEditorContent(content) {
+  if (!editor) return;
+  editor.setValue(content);
+}
+
+// ── VS Code Webview message bridge ──
+// The extension can do: panel.webview.postMessage({ command: 'getContent' })
+// And receive back: vscode.postMessage({ command: 'content', data: '...' })
+window.addEventListener('message', e => {
+  const msg = e.data;
+  switch (msg.command) {
+    case 'getContent':
+      // Reply with active tab content
+      if (typeof acquireVsCodeApi !== 'undefined') {
+        const vscode = acquireVsCodeApi();
+        vscode.postMessage({ command: 'content', data: getEditorContent() });
+      }
+      break;
+    case 'getAllContent':
+      if (typeof acquireVsCodeApi !== 'undefined') {
+        const vscode = acquireVsCodeApi();
+        vscode.postMessage({ command: 'allContent', data: getAllTabsContent() });
+      }
+      break;
+    case 'setContent':
+      if (msg.data !== undefined) setEditorContent(msg.data);
+      break;
+    case 'newTab':
+      addTab(msg.name || `Script ${tabCounter + 1}`, msg.data || '');
+      break;
+  }
+});
+</script>
+</body>
+</html>
