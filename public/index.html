@@ -3,13 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Lua Editor</title>
+  <!-- This meta CSP overrides Netlify's default if netlify.toml isn't set -->
+  <meta http-equiv="Content-Security-Policy" 
+        content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com blob: data:;">
+  <title>Silicon Executor V2</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
       background: #1e1e1e;
@@ -19,6 +18,77 @@
       flex-direction: column;
       height: 100vh;
       overflow: hidden;
+    }
+
+    /* ── Loading Screen ── */
+    #loading-screen {
+      position: fixed;
+      inset: 0;
+      background: #1e1e1e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 99999;
+      gap: 14px;
+      transition: opacity 0.4s;
+    }
+
+    #loading-screen.fade-out {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #loading-logo {
+      font-size: 32px;
+      color: #007acc;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    #loading-title {
+      font-size: 14px;
+      color: #cccccc;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    #loading-bar-wrap {
+      width: 220px;
+      height: 2px;
+      background: #3e3e3e;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    #loading-bar {
+      height: 100%;
+      width: 0%;
+      background: #007acc;
+      border-radius: 2px;
+      transition: width 0.4s ease;
+    }
+
+    #loading-status {
+      font-size: 11px;
+      color: #555;
+    }
+
+    #loading-error {
+      display: none;
+      background: #3e1010;
+      border: 1px solid #7f2020;
+      color: #f87171;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      max-width: 340px;
+      text-align: center;
+      line-height: 1.6;
     }
 
     /* ── Tabs ── */
@@ -49,14 +119,10 @@
       background: #2d2d2d;
       min-width: 120px;
       max-width: 200px;
-      position: relative;
       flex-shrink: 0;
     }
 
-    .tab:hover {
-      background: #3d3d3d;
-      color: #cccccc;
-    }
+    .tab:hover { background: #3d3d3d; color: #cccccc; }
 
     .tab.active {
       background: #1e1e1e;
@@ -64,11 +130,7 @@
       border-top: 1px solid #007acc;
     }
 
-    .tab-icon {
-      width: 14px;
-      height: 14px;
-      flex-shrink: 0;
-    }
+    .tab-icon { width: 14px; height: 14px; flex-shrink: 0; }
 
     .tab-name {
       flex: 1;
@@ -115,13 +177,9 @@
       font-size: 16px;
       color: #969696;
       flex-shrink: 0;
-      line-height: 1;
     }
 
-    .tab-close:hover {
-      background: #ffffff20;
-      color: #ffffff;
-    }
+    .tab-close:hover { background: #ffffff20; color: #ffffff; }
 
     #new-tab-btn {
       padding: 0 12px;
@@ -137,16 +195,301 @@
       height: 35px;
     }
 
-    #new-tab-btn:hover {
-      background: #3d3d3d;
-      color: #cccccc;
-    }
+    #new-tab-btn:hover { background: #3d3d3d; color: #cccccc; }
 
-    /* ── Editor ── */
-    #editor-container {
+    /* ── Layout ── */
+    #main-area {
       flex: 1;
+      display: flex;
       overflow: hidden;
     }
+
+    #editor-container { flex: 1; overflow: hidden; }
+
+    /* ── AI Sidebar ── */
+    #ai-sidebar {
+      width: 340px;
+      min-width: 260px;
+      background: #252526;
+      border-left: 1px solid #3e3e3e;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      overflow: hidden;
+      transition: width 0.2s ease;
+    }
+
+    #ai-sidebar.hidden {
+      width: 0;
+      min-width: 0;
+      border: none;
+    }
+
+    #ai-header {
+      background: #2d2d2d;
+      border-bottom: 1px solid #3e3e3e;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    #ai-header-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #cccccc;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .ai-dot {
+      width: 7px;
+      height: 7px;
+      background: #007acc;
+      border-radius: 50%;
+    }
+
+    #ai-header-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #ai-model-select {
+      background: #1e1e1e;
+      border: 1px solid #3e3e3e;
+      color: #858585;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      outline: none;
+    }
+
+    .ai-icon-btn {
+      background: transparent;
+      border: none;
+      color: #555;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 3px 6px;
+      border-radius: 4px;
+      font-family: inherit;
+    }
+
+    .ai-icon-btn:hover { background: #3e3e3e; color: #cccccc; }
+
+    #ai-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      scrollbar-width: thin;
+      scrollbar-color: #3e3e3e transparent;
+    }
+
+    #ai-messages::-webkit-scrollbar { width: 4px; }
+    #ai-messages::-webkit-scrollbar-thumb { background: #3e3e3e; border-radius: 4px; }
+
+    .ai-welcome {
+      text-align: center;
+      color: #454545;
+      font-size: 12px;
+      margin-top: 24px;
+      line-height: 2;
+    }
+
+    .ai-welcome-icon { font-size: 26px; color: #3e3e3e; }
+
+    .ai-msg { display: flex; flex-direction: column; gap: 3px; max-width: 92%; }
+    .ai-msg.user { align-self: flex-end; }
+    .ai-msg.assistant { align-self: flex-start; }
+
+    .ai-msg-label { font-size: 10px; color: #555; padding: 0 4px; }
+    .ai-msg.user .ai-msg-label { text-align: right; }
+
+    .ai-bubble {
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.55;
+      word-break: break-word;
+    }
+
+    .ai-msg.user .ai-bubble {
+      background: #007acc;
+      color: #fff;
+      border-bottom-right-radius: 2px;
+      white-space: pre-wrap;
+    }
+
+    .ai-msg.assistant .ai-bubble {
+      background: #2d2d2d;
+      color: #d4d4d4;
+      border: 1px solid #3e3e3e;
+      border-bottom-left-radius: 2px;
+    }
+
+    .ai-bubble pre {
+      background: #1a1a1a;
+      border: 1px solid #3e3e3e;
+      border-radius: 6px;
+      padding: 10px;
+      margin: 8px 0 4px;
+      overflow-x: auto;
+      font-size: 12px;
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+      white-space: pre;
+    }
+
+    .ai-bubble code {
+      background: #1a1a1a;
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-size: 12px;
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+    }
+
+    .ai-bubble strong { color: #ffffff; }
+
+    .ai-code-actions {
+      display: flex;
+      gap: 5px;
+      margin-top: 4px;
+      flex-wrap: wrap;
+    }
+
+    .ai-code-btn {
+      background: transparent;
+      border: 1px solid #3e3e3e;
+      color: #858585;
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .ai-code-btn:hover { border-color: #007acc; color: #007acc; }
+
+    .ai-typing {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+      padding: 4px 0;
+    }
+
+    .ai-typing span {
+      width: 6px;
+      height: 6px;
+      background: #555;
+      border-radius: 50%;
+      animation: blink 1.2s infinite;
+    }
+
+    .ai-typing span:nth-child(2) { animation-delay: 0.2s; }
+    .ai-typing span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes blink {
+      0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+      30% { opacity: 1; transform: translateY(-3px); }
+    }
+
+    #ai-quick {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      padding: 8px 12px;
+      border-top: 1px solid #3e3e3e;
+      flex-shrink: 0;
+    }
+
+    .quick-btn {
+      background: #1e1e1e;
+      border: 1px solid #3e3e3e;
+      color: #858585;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+
+    .quick-btn:hover { border-color: #007acc; color: #007acc; }
+
+    #ai-input-area {
+      padding: 10px;
+      border-top: 1px solid #3e3e3e;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+
+    #ai-input-row { display: flex; gap: 6px; align-items: flex-end; }
+
+    #ai-input {
+      flex: 1;
+      background: #1e1e1e;
+      border: 1px solid #3e3e3e;
+      color: #d4d4d4;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 13px;
+      resize: none;
+      font-family: 'Segoe UI', sans-serif;
+      line-height: 1.4;
+      outline: none;
+      max-height: 120px;
+    }
+
+    #ai-input:focus { border-color: #007acc; }
+
+    #ai-send-btn {
+      background: #007acc;
+      border: none;
+      color: white;
+      padding: 8px 13px;
+      border-radius: 6px;
+      font-size: 16px;
+      cursor: pointer;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+
+    #ai-send-btn:hover { background: #1a8ad4; }
+    #ai-send-btn:disabled { background: #3e3e3e; color: #555; cursor: not-allowed; }
+
+    #ai-hint { font-size: 10px; color: #3e3e3e; text-align: center; }
+
+    /* ── AI Toggle in tab bar ── */
+    #ai-toggle-bar-btn {
+      background: transparent;
+      border: none;
+      border-left: 1px solid #252526;
+      color: #858585;
+      font-size: 12px;
+      cursor: pointer;
+      padding: 0 14px;
+      height: 35px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+
+    #ai-toggle-bar-btn:hover { background: #3d3d3d; color: #cccccc; }
+    #ai-toggle-bar-btn.active { color: #007acc; }
 
     /* ── Context Menu ── */
     #ctx-menu {
@@ -161,35 +504,79 @@
       min-width: 160px;
     }
 
-    .ctx-item {
-      padding: 6px 16px;
-      font-size: 13px;
-      color: #cccccc;
-      cursor: pointer;
-    }
-
-    .ctx-item:hover {
-      background: #094771;
-      color: #ffffff;
-    }
-
-    .ctx-sep {
-      height: 1px;
-      background: #454545;
-      margin: 3px 0;
-    }
+    .ctx-item { padding: 6px 16px; font-size: 13px; color: #cccccc; cursor: pointer; }
+    .ctx-item:hover { background: #094771; color: #ffffff; }
+    .ctx-sep { height: 1px; background: #454545; margin: 3px 0; }
   </style>
 </head>
 <body>
 
-<!-- Tabs -->
+<!-- Loading Screen -->
+<div id="loading-screen">
+  <div id="loading-logo">✦</div>
+  <div id="loading-title">Silicon Executor V2</div>
+  <div id="loading-bar-wrap">
+    <div id="loading-bar"></div>
+  </div>
+  <div id="loading-status">Loading editor...</div>
+  <div id="loading-error"></div>
+</div>
+
+<!-- Tabs Bar -->
 <div id="tabs-bar">
   <div id="tabs-list" style="display:flex;align-items:stretch;flex:1;"></div>
+  <button id="ai-toggle-bar-btn" onclick="toggleAISidebar()" title="Toggle AI">✦ AI</button>
   <button id="new-tab-btn" onclick="addTab()" title="New Tab (Ctrl+T)">+</button>
 </div>
 
-<!-- Editor -->
-<div id="editor-container"></div>
+<!-- Main -->
+<div id="main-area">
+  <div id="editor-container"></div>
+
+  <!-- AI Sidebar -->
+  <div id="ai-sidebar" class="hidden">
+    <div id="ai-header">
+      <div id="ai-header-title">
+        <div class="ai-dot"></div>
+        AI Assistant
+      </div>
+      <div id="ai-header-right">
+        <select id="ai-model-select">
+          <option value="moonshotai/kimi-k2">Kimi K2</option>
+          <option value="gpt-4o">GPT-4o</option>
+          <option value="gpt-4o-mini">GPT-4o mini</option>
+          <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+        </select>
+        <button class="ai-icon-btn" onclick="clearChat()" title="Clear chat">⟳</button>
+        <button class="ai-icon-btn" onclick="toggleAISidebar()" title="Close">✕</button>
+      </div>
+    </div>
+
+    <div id="ai-messages">
+      <div class="ai-welcome">
+        <div class="ai-welcome-icon">✦</div>
+        <strong style="color:#858585;">Lua AI Assistant</strong><br>
+        Explain · Fix · Optimize · Write
+      </div>
+    </div>
+
+    <div id="ai-quick">
+      <button class="quick-btn" onclick="aiQuick('explain')">Explain</button>
+      <button class="quick-btn" onclick="aiQuick('fix')">Fix Errors</button>
+      <button class="quick-btn" onclick="aiQuick('optimize')">Optimize</button>
+      <button class="quick-btn" onclick="aiQuick('comment')">Comment</button>
+      <button class="quick-btn" onclick="aiQuick('tests')">Tests</button>
+    </div>
+
+    <div id="ai-input-area">
+      <div id="ai-input-row">
+        <textarea id="ai-input" placeholder="Ask about your Lua script..." rows="2"></textarea>
+        <button id="ai-send-btn" onclick="sendAIMessage()">↑</button>
+      </div>
+      <div id="ai-hint">Enter to send · Shift+Enter for new line</div>
+    </div>
+  </div>
+</div>
 
 <!-- Context Menu -->
 <div id="ctx-menu">
@@ -200,16 +587,58 @@
   <div class="ctx-item" onclick="ctxCloseOthers()">Close Other Tabs</div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
-<script>
-let editor = null;
-let monaco = null;
-let tabs = [];
-let activeTabId = null;
-let tabCounter = 0;
-let ctxTabId = null;
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"
+  onerror="showLoadError('Failed to load Monaco from CDN. Check your internet connection.')">
+</script>
 
-// ── Lua Completions ──
+<script>
+// ─────────────────────────────────────────────
+//  Config
+// ─────────────────────────────────────────────
+const API_URL = '/api/ai'; // your backend proxy URL
+
+// ─────────────────────────────────────────────
+//  Loading helpers
+// ─────────────────────────────────────────────
+function setLoadingProgress(pct, status) {
+  document.getElementById('loading-bar').style.width = pct + '%';
+  document.getElementById('loading-status').textContent = status;
+}
+
+function hideLoadingScreen() {
+  const screen = document.getElementById('loading-screen');
+  screen.classList.add('fade-out');
+  setTimeout(() => screen.remove(), 450);
+}
+
+function showLoadError(msg) {
+  const errEl = document.getElementById('loading-error');
+  errEl.style.display = 'block';
+  errEl.textContent   = msg;
+  document.getElementById('loading-status').textContent = 'Failed to load.';
+}
+
+// ─────────────────────────────────────────────
+//  State
+// ─────────────────────────────────────────────
+let editor      = null;
+let monaco      = null;
+let tabs        = [];
+let activeTabId = null;
+let tabCounter  = 0;
+let ctxTabId    = null;
+let aiHistory   = [];
+let aiTyping    = false;
+let aiVisible   = false;
+
+const AI_SYSTEM_PROMPT = `You are an expert Lua programming assistant inside Silicon Executor V2.
+Help users write, debug, optimize and understand Lua code.
+Always wrap code in triple backtick lua fences.
+Be concise and precise. Temperature is 0.15 — be deterministic and accurate.`;
+
+// ─────────────────────────────────────────────
+//  Lua completions
+// ─────────────────────────────────────────────
 const LUA_KEYWORDS = [
   'and','break','do','else','elseif','end','false','for',
   'function','goto','if','in','local','nil','not','or',
@@ -228,8 +657,7 @@ const LUA_LIBS = [
   'string.format','string.len','string.sub','string.upper','string.lower',
   'string.rep','string.reverse','string.byte','string.char','string.find',
   'string.match','string.gmatch','string.gsub',
-  'table.insert','table.remove','table.sort','table.concat',
-  'table.unpack','table.move',
+  'table.insert','table.remove','table.sort','table.concat','table.unpack','table.move',
   'math.abs','math.ceil','math.floor','math.sqrt','math.max','math.min',
   'math.random','math.randomseed','math.pi','math.huge','math.sin',
   'math.cos','math.tan','math.exp','math.log','math.modf',
@@ -240,93 +668,31 @@ const LUA_LIBS = [
 ];
 
 const LUA_SNIPPETS = [
-  {
-    label: 'function',
-    insertText: 'function ${1:name}(${2:args})\n\t${3}\nend',
-    detail: 'function definition'
-  },
-  {
-    label: 'local function',
-    insertText: 'local function ${1:name}(${2:args})\n\t${3}\nend',
-    detail: 'local function definition'
-  },
-  {
-    label: 'if',
-    insertText: 'if ${1:condition} then\n\t${2}\nend',
-    detail: 'if statement'
-  },
-  {
-    label: 'if-else',
-    insertText: 'if ${1:condition} then\n\t${2}\nelse\n\t${3}\nend',
-    detail: 'if-else statement'
-  },
-  {
-    label: 'elseif',
-    insertText: 'elseif ${1:condition} then\n\t${2}',
-    detail: 'elseif clause'
-  },
-  {
-    label: 'for',
-    insertText: 'for ${1:i} = ${2:1}, ${3:10} do\n\t${4}\nend',
-    detail: 'numeric for loop'
-  },
-  {
-    label: 'for-in',
-    insertText: 'for ${1:k}, ${2:v} in pairs(${3:t}) do\n\t${4}\nend',
-    detail: 'generic for-in loop'
-  },
-  {
-    label: 'while',
-    insertText: 'while ${1:condition} do\n\t${2}\nend',
-    detail: 'while loop'
-  },
-  {
-    label: 'repeat',
-    insertText: 'repeat\n\t${1}\nuntil ${2:condition}',
-    detail: 'repeat-until loop'
-  },
-  {
-    label: 'local',
-    insertText: 'local ${1:name} = ${2:value}',
-    detail: 'local variable'
-  },
-  {
-    label: 'pcall',
-    insertText: 'local ok, err = pcall(function()\n\t${1}\nend)\nif not ok then\n\tprint(err)\nend',
-    detail: 'protected call'
-  },
-  {
-    label: 'require',
-    insertText: 'local ${1:mod} = require("${2:module}")',
-    detail: 'require module'
-  },
-  {
-    label: 'class',
-    insertText:
-`local \${1:ClassName} = {}
-\${1:ClassName}.__index = \${1:ClassName}
-
-function \${1:ClassName}.new(\${2})
-\tlocal self = setmetatable({}, \${1:ClassName})
-\t\${3}
-\treturn self
-end
-
-function \${1:ClassName}:\${4:method}()
-\t\${5}
-end
-
-return \${1:ClassName}`,
-    detail: 'class template'
-  },
+  { label: 'function',       insertText: 'function ${1:name}(${2:args})\n\t${3}\nend',                                                                    detail: 'function' },
+  { label: 'local function', insertText: 'local function ${1:name}(${2:args})\n\t${3}\nend',                                                              detail: 'local function' },
+  { label: 'if',             insertText: 'if ${1:condition} then\n\t${2}\nend',                                                                            detail: 'if' },
+  { label: 'if-else',        insertText: 'if ${1:condition} then\n\t${2}\nelse\n\t${3}\nend',                                                              detail: 'if-else' },
+  { label: 'for',            insertText: 'for ${1:i} = ${2:1}, ${3:10} do\n\t${4}\nend',                                                                  detail: 'for' },
+  { label: 'for-in',         insertText: 'for ${1:k}, ${2:v} in pairs(${3:t}) do\n\t${4}\nend',                                                           detail: 'for-in' },
+  { label: 'while',          insertText: 'while ${1:condition} do\n\t${2}\nend',                                                                           detail: 'while' },
+  { label: 'repeat',         insertText: 'repeat\n\t${1}\nuntil ${2:condition}',                                                                           detail: 'repeat-until' },
+  { label: 'local',          insertText: 'local ${1:name} = ${2:value}',                                                                                   detail: 'local' },
+  { label: 'pcall',          insertText: 'local ok, err = pcall(function()\n\t${1}\nend)\nif not ok then\n\tprint(err)\nend',                              detail: 'pcall' },
+  { label: 'require',        insertText: 'local ${1:mod} = require("${2:module}")',                                                                         detail: 'require' },
+  { label: 'class',          insertText: 'local ${1:ClassName} = {}\n${1:ClassName}.__index = ${1:ClassName}\n\nfunction ${1:ClassName}.new(${2})\n\tlocal self = setmetatable({}, ${1:ClassName})\n\t${3}\n\treturn self\nend\n\nfunction ${1:ClassName}:${4:method}()\n\t${5}\nend\n\nreturn ${1:ClassName}', detail: 'class' },
 ];
 
-// ── Monaco Init ──
+// ─────────────────────────────────────────────
+//  Monaco Init
+// ─────────────────────────────────────────────
+setLoadingProgress(10, 'Loading Monaco editor...');
+
 require.config({
   paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' }
 });
 
 require(['vs/editor/editor.main'], function (m) {
+  setLoadingProgress(60, 'Registering Lua language...');
   monaco = m;
 
   // Autocomplete
@@ -335,101 +701,56 @@ require(['vs/editor/editor.main'], function (m) {
     provideCompletionItems(model, position) {
       const word = model.getWordUntilPosition(position);
       const range = {
-        startLineNumber: position.lineNumber,
-        endLineNumber: position.lineNumber,
-        startColumn: word.startColumn,
-        endColumn: word.endColumn
+        startLineNumber: position.lineNumber, endLineNumber: position.lineNumber,
+        startColumn: word.startColumn,        endColumn:   word.endColumn
       };
-
-      const suggestions = [];
-
-      LUA_KEYWORDS.forEach(kw => suggestions.push({
-        label: kw,
-        kind: monaco.languages.CompletionItemKind.Keyword,
-        insertText: kw,
-        range
-      }));
-
-      LUA_GLOBALS.forEach(g => suggestions.push({
-        label: g,
-        kind: monaco.languages.CompletionItemKind.Function,
-        insertText: g + '($0)',
-        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-        range
-      }));
-
-      LUA_LIBS.forEach(lib => suggestions.push({
-        label: lib,
-        kind: monaco.languages.CompletionItemKind.Method,
-        insertText: lib + '($0)',
-        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-        range,
-        detail: 'Lua stdlib'
-      }));
-
-      LUA_SNIPPETS.forEach(s => suggestions.push({
-        label: s.label,
-        kind: monaco.languages.CompletionItemKind.Snippet,
-        insertText: s.insertText,
-        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-        range,
-        detail: s.detail,
-        sortText: '0' + s.label
-      }));
-
-      return { suggestions };
+      const s = [];
+      LUA_KEYWORDS.forEach(kw  => s.push({ label: kw,  kind: monaco.languages.CompletionItemKind.Keyword,  insertText: kw, range }));
+      LUA_GLOBALS.forEach(g    => s.push({ label: g,   kind: monaco.languages.CompletionItemKind.Function, insertText: g + '($0)',   insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, range }));
+      LUA_LIBS.forEach(lib     => s.push({ label: lib, kind: monaco.languages.CompletionItemKind.Method,   insertText: lib + '($0)', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, range, detail: 'stdlib' }));
+      LUA_SNIPPETS.forEach(sn  => s.push({ label: sn.label, kind: monaco.languages.CompletionItemKind.Snippet, insertText: sn.insertText, insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, range, detail: sn.detail, sortText: '0' + sn.label }));
+      return { suggestions: s };
     }
   });
 
-  // Hover docs
+  // Hover
   monaco.languages.registerHoverProvider('lua', {
     provideHover(model, position) {
       const word = model.getWordAtPosition(position);
       if (!word) return null;
       const docs = {
-        print:          '```lua\nprint(...)\n```\nOutputs values to stdout, separated by tabs.',
-        pairs:          '```lua\npairs(t)\n```\nReturns an iterator for all key-value pairs in table `t`.',
-        ipairs:         '```lua\nipairs(t)\n```\nReturns an iterator for integer-indexed values in `t`.',
-        tostring:       '```lua\ntostring(v)\n```\nConverts value `v` to a string.',
-        tonumber:       '```lua\ntonumber(v [, base])\n```\nConverts `v` to a number.',
-        type:           '```lua\ntype(v)\n```\nReturns the type of `v` as a string.',
-        pcall:          '```lua\npcall(f, ...)\n```\nCalls `f` in protected mode. Returns `true, results` or `false, error`.',
-        xpcall:         '```lua\nxpcall(f, handler)\n```\nLike pcall but with a message handler.',
-        error:          '```lua\nerror(msg [, level])\n```\nRaises an error with message `msg`.',
-        assert:         '```lua\nassert(v [, msg])\n```\nErrors if `v` is false or nil.',
-        require:        '```lua\nrequire(modname)\n```\nLoads the given module.',
-        setmetatable:   '```lua\nsetmetatable(t, mt)\n```\nSets the metatable for table `t`.',
-        getmetatable:   '```lua\ngetmetatable(t)\n```\nReturns the metatable of `t`.',
-        rawget:         '```lua\nrawget(t, k)\n```\nGets `t[k]` without invoking metamethods.',
-        rawset:         '```lua\nrawset(t, k, v)\n```\nSets `t[k] = v` without invoking metamethods.',
-        select:         '```lua\nselect(index, ...)\n```\nReturns elements from `...` starting at `index`.',
-        unpack:         '```lua\nunpack(list [, i [, j]])\n```\nReturns elements from the list.',
-        collectgarbage: '```lua\ncollectgarbage([opt])\n```\nControls the garbage collector.',
-        load:           '```lua\nload(chunk)\n```\nLoads a chunk of Lua code.',
-        dofile:         '```lua\ndofile([filename])\n```\nLoads and executes a Lua file.',
-        next:           '```lua\nnext(t [, key])\n```\nReturns the next key-value pair in table `t`.',
+        print: '```lua\nprint(...)\n```\nOutputs values to stdout.',
+        pairs: '```lua\npairs(t)\n```\nIterates all key-value pairs in `t`.',
+        ipairs: '```lua\nipairs(t)\n```\nIterates integer-indexed values in `t`.',
+        tostring: '```lua\ntostring(v)\n```\nConverts `v` to a string.',
+        tonumber: '```lua\ntonumber(v [, base])\n```\nConverts `v` to a number.',
+        type: '```lua\ntype(v)\n```\nReturns the type name of `v`.',
+        pcall: '```lua\npcall(f, ...)\n```\nCalls `f` in protected mode.',
+        error: '```lua\nerror(msg [, level])\n```\nRaises an error.',
+        assert: '```lua\nassert(v [, msg])\n```\nErrors if `v` is falsy.',
+        require: '```lua\nrequire(modname)\n```\nLoads a module.',
+        setmetatable: '```lua\nsetmetatable(t, mt)\n```\nSets the metatable for `t`.',
+        getmetatable: '```lua\ngetmetatable(t)\n```\nGets the metatable of `t`.',
+        select: '```lua\nselect(index, ...)\n```\nReturns elements from `...`.',
+        next: '```lua\nnext(t [, key])\n```\nNext key-value pair in `t`.',
       };
-      if (docs[word.word]) {
-        return { contents: [{ value: docs[word.word] }] };
-      }
+      if (docs[word.word]) return { contents: [{ value: docs[word.word] }] };
       return null;
     }
   });
 
-  // Create editor
+  setLoadingProgress(85, 'Creating editor...');
+
   editor = monaco.editor.create(document.getElementById('editor-container'), {
-    language: 'lua',
-    theme: 'vs-dark',
+    language: 'lua', theme: 'vs-dark',
     fontSize: 14,
     fontFamily: "'Cascadia Code', 'Consolas', 'Courier New', monospace",
     fontLigatures: true,
     minimap: { enabled: true },
     scrollBeyondLastLine: false,
     automaticLayout: true,
-    tabSize: 2,
-    insertSpaces: true,
-    wordWrap: 'off',
-    lineNumbers: 'on',
+    tabSize: 2, insertSpaces: true,
+    wordWrap: 'off', lineNumbers: 'on',
     renderLineHighlight: 'all',
     cursorBlinking: 'blink',
     cursorSmoothCaretAnimation: 'on',
@@ -444,89 +765,56 @@ require(['vs/editor/editor.main'], function (m) {
     autoClosingQuotes: 'always',
     folding: true,
     showFoldingControls: 'mouseover',
-    renderWhitespace: 'none',
     padding: { top: 4 },
-    scrollbar: {
-      verticalScrollbarSize: 10,
-      horizontalScrollbarSize: 10,
-    },
-    suggest: {
-      showKeywords: true,
-      showSnippets: true,
-      showFunctions: true,
-      showMethods: true,
-    }
+    scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
   });
 
-  // Track cursor position (optional, remove if not needed)
-  editor.onDidChangeCursorPosition(e => {
-    // You can post this to the webview host if needed
-  });
-
-  // Track modifications
   editor.onDidChangeModelContent(() => {
     if (activeTabId === null) return;
     const tab = getTab(activeTabId);
-    if (tab) {
-      tab.modified = true;
-      tab.content = editor.getValue();
-      renderTabs();
-    }
+    if (tab) { tab.modified = true; tab.content = editor.getValue(); renderTabs(); }
   });
 
-  // Initial tab
+  setLoadingProgress(100, 'Ready!');
   addTab('Script 1', '-- Welcome to Silicon Executor V2');
+
+  setTimeout(hideLoadingScreen, 300);
+
+}, function (err) {
+  // RequireJS error callback
+  showLoadError('Monaco failed to load: ' + (err?.message || err));
 });
 
-// ── Tab Helpers ──
+// ─────────────────────────────────────────────
+//  Tab System
+// ─────────────────────────────────────────────
 function getTab(id) { return tabs.find(t => t.id === id); }
 
 function addTab(name, content) {
   tabCounter++;
   const id = tabCounter;
   const tab = {
-    id,
-    name: name || `Script ${tabCounter}`,
+    id, name: name || `Script ${tabCounter}`,
     content: content !== undefined ? content : '',
-    model: null,
-    viewState: null,
-    modified: false,
-    renaming: false,
+    model: null, viewState: null, modified: false, renaming: false,
   };
-
-  if (monaco) {
-    tab.model = monaco.editor.createModel(tab.content, 'lua');
-  }
-
+  if (monaco) tab.model = monaco.editor.createModel(tab.content, 'lua');
   tabs.push(tab);
   switchTab(id);
 }
 
 function switchTab(id) {
   if (!editor || !monaco) return;
-
   if (activeTabId !== null) {
     const cur = getTab(activeTabId);
-    if (cur) {
-      cur.content = editor.getValue();
-      cur.viewState = editor.saveViewState();
-    }
+    if (cur) { cur.content = editor.getValue(); cur.viewState = editor.saveViewState(); }
   }
-
   activeTabId = id;
   const tab = getTab(id);
   if (!tab) return;
-
-  if (!tab.model) {
-    tab.model = monaco.editor.createModel(tab.content, 'lua');
-  }
-
+  if (!tab.model) tab.model = monaco.editor.createModel(tab.content, 'lua');
   editor.setModel(tab.model);
-
-  if (tab.viewState) {
-    editor.restoreViewState(tab.viewState);
-  }
-
+  if (tab.viewState) editor.restoreViewState(tab.viewState);
   editor.focus();
   renderTabs();
 }
@@ -535,22 +823,12 @@ function closeTab(id, e) {
   if (e) e.stopPropagation();
   const idx = tabs.findIndex(t => t.id === id);
   if (idx === -1) return;
-
   const tab = tabs[idx];
   if (tab.model) tab.model.dispose();
   tabs.splice(idx, 1);
-
-  if (tabs.length === 0) {
-    addTab(`Script ${tabCounter + 1}`, '');
-    return;
-  }
-
-  if (activeTabId === id) {
-    const newIdx = Math.min(idx, tabs.length - 1);
-    switchTab(tabs[newIdx].id);
-  } else {
-    renderTabs();
-  }
+  if (tabs.length === 0) { addTab(`Script ${tabCounter + 1}`, ''); return; }
+  if (activeTabId === id) switchTab(tabs[Math.min(idx, tabs.length - 1)].id);
+  else renderTabs();
 }
 
 function renameTab(id) {
@@ -575,28 +853,23 @@ function finishRename(id, value) {
 function luaIcon() {
   return `<svg class="tab-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
     <rect width="16" height="16" rx="2" fill="#00007f"/>
-    <circle cx="8" cy="8" r="4" fill="#ffffff" opacity="0.9"/>
-    <circle cx="11" cy="5" r="1.5" fill="#ffffff" opacity="0.9"/>
+    <circle cx="8" cy="8" r="4" fill="#fff" opacity="0.9"/>
+    <circle cx="11" cy="5" r="1.5" fill="#fff" opacity="0.9"/>
   </svg>`;
 }
 
 function renderTabs() {
   const list = document.getElementById('tabs-list');
   list.innerHTML = '';
-
   tabs.forEach(tab => {
     const el = document.createElement('div');
-    el.className = 'tab' +
-      (tab.id === activeTabId ? ' active' : '') +
-      (tab.modified ? ' modified' : '');
+    el.className = 'tab' + (tab.id === activeTabId ? ' active' : '') + (tab.modified ? ' modified' : '');
     el.dataset.id = tab.id;
     el.title = tab.name;
 
-    // Icon
     const iconEl = document.createElement('span');
     iconEl.innerHTML = luaIcon();
 
-    // Name
     const nameEl = document.createElement('div');
     nameEl.className = 'tab-name';
 
@@ -616,16 +889,12 @@ function renderTabs() {
       nameEl.textContent = tab.name;
     }
 
-    // Modified dot
     const dot = document.createElement('div');
     dot.className = 'tab-modified';
-    dot.title = 'Unsaved changes';
 
-    // Close
     const closeBtn = document.createElement('div');
     closeBtn.className = 'tab-close';
     closeBtn.innerHTML = '×';
-    closeBtn.title = 'Close Tab';
     closeBtn.onclick = e => closeTab(tab.id, e);
 
     el.appendChild(iconEl);
@@ -633,69 +902,49 @@ function renderTabs() {
     el.appendChild(dot);
     el.appendChild(closeBtn);
 
-    // Left click — switch
-    el.onclick = () => { if (!tab.renaming) switchTab(tab.id); };
-    // Double click — rename
-    el.ondblclick = e => { e.stopPropagation(); renameTab(tab.id); };
-    // Right click — context menu
-    el.oncontextmenu = e => showCtxMenu(e, tab.id);
+    el.onclick       = () => { if (!tab.renaming) switchTab(tab.id); };
+    el.ondblclick    = e  => { e.stopPropagation(); renameTab(tab.id); };
+    el.oncontextmenu = e  => showCtxMenu(e, tab.id);
 
     list.appendChild(el);
   });
 }
 
-// ── Context Menu ──
+// ─────────────────────────────────────────────
+//  Context Menu
+// ─────────────────────────────────────────────
 function showCtxMenu(e, tabId) {
   e.preventDefault();
   ctxTabId = tabId;
   const menu = document.getElementById('ctx-menu');
   menu.style.display = 'block';
-  menu.style.left = Math.min(e.clientX, window.innerWidth - 170) + 'px';
-  menu.style.top = Math.min(e.clientY, window.innerHeight - 140) + 'px';
+  menu.style.left = Math.min(e.clientX, window.innerWidth  - 170) + 'px';
+  menu.style.top  = Math.min(e.clientY, window.innerHeight - 140) + 'px';
 }
 
-function hideCtxMenu() {
-  document.getElementById('ctx-menu').style.display = 'none';
-}
-
-function ctxRename() {
-  hideCtxMenu();
-  if (ctxTabId !== null) renameTab(ctxTabId);
-}
-
+function hideCtxMenu() { document.getElementById('ctx-menu').style.display = 'none'; }
+function ctxRename()   { hideCtxMenu(); if (ctxTabId) renameTab(ctxTabId); }
+function ctxClose()    { hideCtxMenu(); if (ctxTabId) closeTab(ctxTabId); }
 function ctxDuplicate() {
   hideCtxMenu();
   const tab = getTab(ctxTabId);
   if (!tab) return;
-  // Save latest content if duplicating the active tab
-  const content = ctxTabId === activeTabId ? editor.getValue() : tab.content;
-  addTab(tab.name + ' (copy)', content);
+  addTab(tab.name + ' (copy)', ctxTabId === activeTabId ? editor.getValue() : tab.content);
 }
-
-function ctxClose() {
-  hideCtxMenu();
-  if (ctxTabId !== null) closeTab(ctxTabId);
-}
-
 function ctxCloseOthers() {
   hideCtxMenu();
-  const keep = ctxTabId;
-  // Switch to the kept tab first
-  if (activeTabId !== keep) switchTab(keep);
-  // Close all others
-  tabs.filter(t => t.id !== keep).forEach(t => {
-    if (t.model) t.model.dispose();
-  });
-  tabs = tabs.filter(t => t.id === keep);
+  if (activeTabId !== ctxTabId) switchTab(ctxTabId);
+  tabs.filter(t => t.id !== ctxTabId).forEach(t => { if (t.model) t.model.dispose(); });
+  tabs = tabs.filter(t => t.id === ctxTabId);
   renderTabs();
 }
 
 document.addEventListener('click', hideCtxMenu);
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') hideCtxMenu();
-});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideCtxMenu(); });
 
-// ── Keyboard Shortcuts ──
+// ─────────────────────────────────────────────
+//  Keyboard Shortcuts
+// ─────────────────────────────────────────────
 document.addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey) {
     if (e.key === 'w') { e.preventDefault(); closeTab(activeTabId); }
@@ -703,7 +952,7 @@ document.addEventListener('keydown', e => {
     if (e.key === 'Tab') {
       e.preventDefault();
       if (tabs.length < 2) return;
-      const idx = tabs.findIndex(t => t.id === activeTabId);
+      const idx  = tabs.findIndex(t => t.id === activeTabId);
       const next = tabs[(idx + (e.shiftKey ? -1 : 1) + tabs.length) % tabs.length];
       switchTab(next.id);
     }
@@ -711,78 +960,191 @@ document.addEventListener('keydown', e => {
 });
 
 // ─────────────────────────────────────────────
-//  PUBLIC API — use these from VS Code webview
+//  AI
 // ─────────────────────────────────────────────
-
-/**
- * Get the content of the currently active tab.
- * @returns {string}
- */
-function getEditorContent() {
-  if (!editor) return '';
-  return editor.getValue();
+function toggleAISidebar() {
+  aiVisible = !aiVisible;
+  document.getElementById('ai-sidebar').classList.toggle('hidden', !aiVisible);
+  document.getElementById('ai-toggle-bar-btn').classList.toggle('active', aiVisible);
+  if (editor) editor.layout();
 }
 
-/**
- * Get the content of a specific tab by its id.
- * @param {number} id
- * @returns {string}
- */
-function getTabContent(id) {
-  const tab = getTab(id);
-  if (!tab) return '';
-  // If it's the active tab, grab live value from editor
-  if (id === activeTabId && editor) return editor.getValue();
-  return tab.content;
+function clearChat() {
+  aiHistory = [];
+  document.getElementById('ai-messages').innerHTML = `
+    <div class="ai-welcome">
+      <div class="ai-welcome-icon">✦</div>
+      <strong style="color:#858585;">Lua AI Assistant</strong><br>
+      Explain · Fix · Optimize · Write
+    </div>`;
 }
 
-/**
- * Get all tabs with their content.
- * @returns {{ id: number, name: string, content: string }[]}
- */
+function aiQuick(action) {
+  const code = getEditorContent();
+  const map  = {
+    explain:  `Explain what this Lua script does:\n\`\`\`lua\n${code}\n\`\`\``,
+    fix:      `Find and fix any bugs in this Lua script:\n\`\`\`lua\n${code}\n\`\`\``,
+    optimize: `Optimize this Lua script:\n\`\`\`lua\n${code}\n\`\`\``,
+    comment:  `Add clear inline comments to this Lua script:\n\`\`\`lua\n${code}\n\`\`\``,
+    tests:    `Write unit tests for this Lua script:\n\`\`\`lua\n${code}\n\`\`\``,
+  };
+  document.getElementById('ai-input').value = map[action];
+  sendAIMessage();
+}
+
+async function sendAIMessage() {
+  if (aiTyping) return;
+  const input = document.getElementById('ai-input');
+  const text  = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+  appendAIMessage('user', text);
+
+  let userContent = text;
+  const ctxWords  = ['script','code','this','fix','optimize','explain','error','bug','function'];
+  if (ctxWords.some(w => text.toLowerCase().includes(w))) {
+    const code = getEditorContent();
+    if (code.trim()) userContent += `\n\nCurrent script:\n\`\`\`lua\n${code}\n\`\`\``;
+  }
+
+  aiHistory.push({ role: 'user', content: userContent });
+
+  const typingEl = showTypingIndicator();
+  aiTyping = true;
+  document.getElementById('ai-send-btn').disabled = true;
+
+  const model = document.getElementById('ai-model-select').value;
+
+  try {
+    const res = await fetch(API_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: AI_SYSTEM_PROMPT },
+          ...aiHistory.slice(-12)
+        ]
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+    const reply = data.reply;
+    aiHistory.push({ role: 'assistant', content: reply });
+    typingEl.remove();
+    appendAIMessage('assistant', reply);
+
+  } catch (err) {
+    typingEl.remove();
+    appendAIMessage('assistant', `⚠️ ${err.message}`);
+  } finally {
+    aiTyping = false;
+    document.getElementById('ai-send-btn').disabled = false;
+  }
+}
+
+function appendAIMessage(role, text) {
+  const welcome = document.querySelector('.ai-welcome');
+  if (welcome) welcome.remove();
+
+  const messages = document.getElementById('ai-messages');
+  const wrapper  = document.createElement('div');
+  wrapper.className = `ai-msg ${role}`;
+
+  const label = document.createElement('div');
+  label.className   = 'ai-msg-label';
+  label.textContent = role === 'user' ? 'You' : '✦ AI';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'ai-bubble';
+  bubble.innerHTML = renderAIText(text);
+
+  wrapper.appendChild(label);
+  wrapper.appendChild(bubble);
+
+  if (role === 'assistant' && text.includes('```')) {
+    const actions = document.createElement('div');
+    actions.className = 'ai-code-actions';
+
+    const insertBtn = document.createElement('button');
+    insertBtn.className   = 'ai-code-btn';
+    insertBtn.textContent = '↑ Insert at cursor';
+    insertBtn.onclick     = () => insertCodeAtCursor(text);
+
+    const replaceBtn = document.createElement('button');
+    replaceBtn.className   = 'ai-code-btn';
+    replaceBtn.textContent = '⟳ Replace editor';
+    replaceBtn.onclick     = () => replaceEditorContent(text);
+
+    actions.appendChild(insertBtn);
+    actions.appendChild(replaceBtn);
+    wrapper.appendChild(actions);
+  }
+
+  messages.appendChild(wrapper);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function renderAIText(text) {
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  let html  = esc(text);
+  html = html.replace(/```(\w+)?\n?([\s\S]*?)```/g, (_, lang, code) => `<pre><code>${code.trim()}</code></pre>`);
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
+function extractLastCode(text) {
+  const m = [...text.matchAll(/```(?:\w+)?\n?([\s\S]*?)```/g)];
+  return m.length ? m[m.length - 1][1].trim() : null;
+}
+
+function insertCodeAtCursor(text) {
+  const code = extractLastCode(text);
+  if (!code || !editor) return;
+  editor.executeEdits('ai', [{ range: editor.getSelection(), text: code, forceMoveMarkers: true }]);
+  editor.focus();
+}
+
+function replaceEditorContent(text) {
+  const code = extractLastCode(text);
+  if (!code || !editor) return;
+  editor.setValue(code);
+  editor.focus();
+}
+
+function showTypingIndicator() {
+  const messages = document.getElementById('ai-messages');
+  const el = document.createElement('div');
+  el.className = 'ai-msg assistant';
+  el.innerHTML = `
+    <div class="ai-msg-label">✦ AI</div>
+    <div class="ai-bubble">
+      <div class="ai-typing"><span></span><span></span><span></span></div>
+    </div>`;
+  messages.appendChild(el);
+  messages.scrollTop = messages.scrollHeight;
+  return el;
+}
+
+// ─────────────────────────────────────────────
+//  Public API
+// ─────────────────────────────────────────────
+function getEditorContent() { return editor ? editor.getValue() : ''; }
+function setEditorContent(c) { if (editor) editor.setValue(c); }
 function getAllTabsContent() {
-  return tabs.map(tab => ({
-    id: tab.id,
-    name: tab.name,
-    content: getTabContent(tab.id)
+  return tabs.map(t => ({
+    id: t.id, name: t.name,
+    content: t.id === activeTabId ? getEditorContent() : t.content
   }));
 }
 
-/**
- * Set the content of the active tab programmatically.
- * @param {string} content
- */
-function setEditorContent(content) {
-  if (!editor) return;
-  editor.setValue(content);
-}
-
-// ── VS Code Webview message bridge ──
-// The extension can do: panel.webview.postMessage({ command: 'getContent' })
-// And receive back: vscode.postMessage({ command: 'content', data: '...' })
-window.addEventListener('message', e => {
-  const msg = e.data;
-  switch (msg.command) {
-    case 'getContent':
-      // Reply with active tab content
-      if (typeof acquireVsCodeApi !== 'undefined') {
-        const vscode = acquireVsCodeApi();
-        vscode.postMessage({ command: 'content', data: getEditorContent() });
-      }
-      break;
-    case 'getAllContent':
-      if (typeof acquireVsCodeApi !== 'undefined') {
-        const vscode = acquireVsCodeApi();
-        vscode.postMessage({ command: 'allContent', data: getAllTabsContent() });
-      }
-      break;
-    case 'setContent':
-      if (msg.data !== undefined) setEditorContent(msg.data);
-      break;
-    case 'newTab':
-      addTab(msg.name || `Script ${tabCounter + 1}`, msg.data || '');
-      break;
-  }
+document.getElementById('ai-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAIMessage(); }
 });
 </script>
 </body>
