@@ -38,16 +38,16 @@ app.post('/api/ai', async (req, res) => {
     }
 
     try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method:  'POST',
             headers: {
                 'Content-Type':  'application/json',
-                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, // env variable, never hardcoded
+                'Authorization': `Bearer ${PROCESS.ENV.GROQKEY}`,
             },
             body: JSON.stringify({
-                model:       'gpt-4o',
+                model:       'moonshotai/kimi-k2-instruct',
                 messages:    messages,
-                temperature: 0.3,
+                temperature: 0.15,
                 max_tokens:  2048,
             }),
         });
